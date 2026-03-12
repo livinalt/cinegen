@@ -33,9 +33,11 @@ function PresetBrowser() {
       {/* Category tabs */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 8 }}>
         {PRESET_CATEGORIES.map(cat => (
-          <button key={cat}
+          <button
+            key={cat}
             className={`cat-tab${activeCategoryTab === cat ? ' active' : ''}`}
-            onClick={() => dispatch({ type: 'SET_CATEGORY_TAB', category: cat as PresetCategory })}>
+            onClick={() => dispatch({ type: 'SET_CATEGORY_TAB', category: cat as PresetCategory })}
+          >
             {cat.charAt(0).toUpperCase() + cat.slice(1, 4)}
           </button>
         ))}
@@ -47,10 +49,12 @@ function PresetBrowser() {
             const isLocked = preset.tier === 'pro' && !isProFeature('presets')
             const isActive = params.activePresetId === preset.id
             return (
-              <div key={preset.id}
+              <div
+                key={preset.id}
                 className={`preset-card${isActive ? ' selected' : ''}`}
                 onClick={() => { if (!isLocked) dispatch({ type: 'SET_PRESET', preset }) }}
-                title={isLocked ? 'Upgrade to Pro' : preset.name}>
+                title={isLocked ? 'Upgrade to Pro' : preset.name}
+              >
                 <div style={{ position: 'relative' }}>
                   <PresetThumb colors={preset.colors} />
                   {isLocked && (
@@ -81,7 +85,17 @@ function UploadZone() {
   const [dragOver, setDragOver] = useState(false)
 
   const handleFile = useCallback((file: File) => {
-    dispatch({ type: 'SET_SOURCE_VIDEO', name: file.name, url: URL.createObjectURL(file) })
+    const objectUrl = URL.createObjectURL(file)
+
+    dispatch({
+      type: 'SET_SOURCE_VIDEO',
+      name: file.name,
+      url: objectUrl,
+      // duration: we usually set this later after video metadata loads
+    })
+
+    // Optional: you can add cleanup logic higher up in the component tree
+    // return () => URL.revokeObjectURL(objectUrl)
   }, [dispatch])
 
   if (state.sourceVideoName) {
@@ -90,7 +104,9 @@ function UploadZone() {
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 12px', borderRadius: 8, background: 'var(--raised-bg)', border: '1px solid var(--border-default)' }}>
           <Film size={13} style={{ color: 'var(--accent)', flexShrink: 0 }} />
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 11.5, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text-primary)' }}>{state.sourceVideoName}</div>
+            <div style={{ fontSize: 11.5, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text-primary)' }}>
+              {state.sourceVideoName}
+            </div>
             <div style={{ fontSize: 10, color: 'var(--text-tertiary)', marginTop: 1 }}>Loaded · Looping</div>
           </div>
           <button onClick={() => dispatch({ type: 'CLEAR_SOURCE_VIDEO' })} className="btn-icon" style={{ padding: 2 }}>
@@ -103,14 +119,26 @@ function UploadZone() {
 
   return (
     <div style={{ flex: 1, padding: '0 12px 8px' }}>
-      <input ref={fileInputRef} type="file" accept="video/*" style={{ display: 'none' }}
-        onChange={e => { if (e.target.files?.[0]) handleFile(e.target.files[0]) }} />
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="video/*"
+        style={{ display: 'none' }}
+        onChange={e => {
+          if (e.target.files?.[0]) handleFile(e.target.files[0])
+        }}
+      />
       <div
         className={`upload-zone${dragOver ? ' drag-over' : ''}`}
         onClick={() => fileInputRef.current?.click()}
         onDragOver={e => { e.preventDefault(); setDragOver(true) }}
         onDragLeave={() => setDragOver(false)}
-        onDrop={e => { e.preventDefault(); setDragOver(false); if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]) }}>
+        onDrop={e => {
+          e.preventDefault()
+          setDragOver(false)
+          if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0])
+        }}
+      >
         <Upload size={18} style={{ color: 'var(--text-tertiary)', marginBottom: 6 }} />
         <p style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--text-secondary)' }}>Drop your video here</p>
         <p style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 3 }}>or click to browse</p>
@@ -125,13 +153,13 @@ function AudioSection() {
   const { state, dispatch } = useApp()
   const { audioFileName, audioFileUrl, audioEnabled, audioVolume } = state
 
-  const fileInputRef  = useRef<HTMLInputElement>(null)
-  const audioRef      = useRef<HTMLAudioElement>(null)
-  const [isPlaying, setIsPlaying]   = useState(false)
-  const [dragOver,  setDragOver]    = useState(false)
-  const [error,     setError]       = useState('')
-  const [duration,  setDuration]    = useState(0)
-  const [current,   setCurrent]     = useState(0)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const audioRef = useRef<HTMLAudioElement>(null)
+  const [isPlaying, setIsPlaying] = useState(false)
+  const [dragOver, setDragOver] = useState(false)
+  const [error, setError] = useState('')
+  const [duration, setDuration] = useState(0)
+  const [current, setCurrent] = useState(0)
 
   // Keep audio element volume in sync
   useEffect(() => {
@@ -141,31 +169,46 @@ function AudioSection() {
   const loadFile = (file: File) => {
     setError('')
     if (!/\.(mp3|wav|ogg|aac|m4a)$/i.test(file.name) && !file.type.startsWith('audio/')) {
-      setError('Unsupported format'); return
+      setError('Unsupported format')
+      return
     }
-    if (file.size > 50 * 1024 * 1024) { setError('Max 50 MB'); return }
+    if (file.size > 50 * 1024 * 1024) {
+      setError('Max 50 MB')
+      return
+    }
     if (audioFileUrl) URL.revokeObjectURL(audioFileUrl)
     dispatch({ type: 'SET_AUDIO', fileName: file.name, url: URL.createObjectURL(file) })
-    setIsPlaying(false); setDuration(0); setCurrent(0)
+    setIsPlaying(false)
+    setDuration(0)
+    setCurrent(0)
   }
 
   const togglePlay = () => {
-    const el = audioRef.current; if (!el) return
-    if (isPlaying) { el.pause(); setIsPlaying(false) }
-    else { el.play().then(() => setIsPlaying(true)).catch(() => setError('Preview failed')) }
+    const el = audioRef.current
+    if (!el) return
+    if (isPlaying) {
+      el.pause()
+      setIsPlaying(false)
+    } else {
+      el.play()
+        .then(() => setIsPlaying(true))
+        .catch(() => setError('Preview failed'))
+    }
   }
 
   const clearAudio = () => {
-    audioRef.current?.pause(); setIsPlaying(false)
+    audioRef.current?.pause()
+    setIsPlaying(false)
     if (audioFileUrl) URL.revokeObjectURL(audioFileUrl)
     dispatch({ type: 'CLEAR_AUDIO' })
-    setDuration(0); setCurrent(0); setError('')
+    setDuration(0)
+    setCurrent(0)
+    setError('')
   }
 
   const progress = duration > 0 ? (current / duration) * 100 : 0
 
   return (
-    // flexShrink:0 keeps this pinned at the bottom — it never grows/shrinks
     <div style={{
       flexShrink: 0,
       borderTop: '1px solid var(--border-subtle)',
@@ -174,9 +217,14 @@ function AudioSection() {
     }}>
       {/* Section label */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-        <p style={{ ...MONO, fontSize: 9, letterSpacing: '0.07em', textTransform: 'uppercase', color: 'var(--text-tertiary)' }}>Audio track</p>
+        <p style={{ ...MONO, fontSize: 9, letterSpacing: '0.07em', textTransform: 'uppercase', color: 'var(--text-tertiary)' }}>
+          Audio track
+        </p>
         {audioFileName && (
-          <button onClick={() => fileInputRef.current?.click()} style={{ ...MONO, fontSize: 8.5, padding: '2px 6px', borderRadius: 4, background: 'var(--raised-bg)', border: '1px solid var(--border-default)', color: 'var(--text-tertiary)', cursor: 'pointer' }}>
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            style={{ ...MONO, fontSize: 8.5, padding: '2px 6px', borderRadius: 4, background: 'var(--raised-bg)', border: '1px solid var(--border-default)', color: 'var(--text-tertiary)', cursor: 'pointer' }}
+          >
             Replace
           </button>
         )}
@@ -184,13 +232,13 @@ function AudioSection() {
 
       {error && <p style={{ fontSize: 10, color: 'var(--error-color)', marginBottom: 6 }}>{error}</p>}
 
-      {/* Hidden audio element — always mounted when file loaded */}
+      {/* Hidden audio element */}
       {audioFileUrl && (
         <audio
           ref={audioRef}
           src={audioFileUrl}
           loop
-          onLoadedMetadata={e => setDuration((e.target as HTMLAudioElement).duration)}
+          onLoadedMetadata={e => setDuration((e.target as HTMLAudioElement).duration || 0)}
           onTimeUpdate={e => setCurrent((e.target as HTMLAudioElement).currentTime)}
           onEnded={() => setIsPlaying(false)}
           style={{ display: 'none' }}
@@ -198,47 +246,63 @@ function AudioSection() {
       )}
 
       {!audioFileName ? (
-        /* ── Drop zone ── */
         <div
           className={`upload-zone${dragOver ? ' drag-over' : ''}`}
           style={{ padding: '10px 8px', gap: 3 }}
           onClick={() => fileInputRef.current?.click()}
-          onDragOver={(e: React.DragEvent) => { e.preventDefault(); setDragOver(true) }}
+          onDragOver={e => { e.preventDefault(); setDragOver(true) }}
           onDragLeave={() => setDragOver(false)}
-          onDrop={(e: React.DragEvent) => { e.preventDefault(); setDragOver(false); const f = e.dataTransfer.files[0]; if (f) loadFile(f) }}>
+          onDrop={e => {
+            e.preventDefault()
+            setDragOver(false)
+            const f = e.dataTransfer.files[0]
+            if (f) loadFile(f)
+          }}
+        >
           <Music2 size={14} style={{ color: 'var(--text-tertiary)' }} />
           <p style={{ fontSize: 11, fontWeight: 500, color: 'var(--text-secondary)' }}>Drop audio</p>
           <p style={{ fontSize: 9.5, color: 'var(--text-tertiary)' }}>MP3, WAV, OGG · 50 MB</p>
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-
-          {/* ── Player row ── */}
+          {/* Player row */}
           <div style={{
-            display: 'flex', alignItems: 'center', gap: 8,
-            padding: '7px 10px', borderRadius: 8,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            padding: '7px 10px',
+            borderRadius: 8,
             background: 'var(--raised-bg)',
             border: '1px solid var(--border-default)',
           }}>
-            {/* Play / pause */}
-            <button onClick={togglePlay} title={isPlaying ? 'Pause' : 'Play'} style={{
-              width: 26, height: 26, borderRadius: '50%', flexShrink: 0,
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              cursor: 'pointer', transition: 'all 0.15s',
-              background: isPlaying ? 'var(--accent)' : 'var(--elevated-bg)',
-              border: `1px solid ${isPlaying ? 'var(--accent-border)' : 'var(--border-default)'}`,
-              boxShadow: isPlaying ? '0 0 8px var(--accent-glow)' : 'none',
-            }}>
-              {isPlaying
-                ? <span style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2, width: 8, height: 10 }}>
-                    <span style={{ background: '#fff', borderRadius: 1 }} />
-                    <span style={{ background: '#fff', borderRadius: 1 }} />
-                  </span>
-                : <span style={{ width: 0, height: 0, borderStyle: 'solid', marginLeft: 2, borderWidth: '4px 0 4px 7px', borderColor: 'transparent transparent transparent var(--text-primary)' }} />
-              }
+            <button
+              onClick={togglePlay}
+              title={isPlaying ? 'Pause' : 'Play'}
+              style={{
+                width: 26,
+                height: 26,
+                borderRadius: '50%',
+                flexShrink: 0,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                cursor: 'pointer',
+                transition: 'all 0.15s',
+                background: isPlaying ? 'var(--accent)' : 'var(--elevated-bg)',
+                border: `1px solid ${isPlaying ? 'var(--accent-border)' : 'var(--border-default)'}`,
+                boxShadow: isPlaying ? '0 0 8px var(--accent-glow)' : 'none',
+              }}
+            >
+              {isPlaying ? (
+                <span style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2, width: 8, height: 10 }}>
+                  <span style={{ background: '#fff', borderRadius: 1 }} />
+                  <span style={{ background: '#fff', borderRadius: 1 }} />
+                </span>
+              ) : (
+                <span style={{ width: 0, height: 0, borderStyle: 'solid', marginLeft: 2, borderWidth: '4px 0 4px 7px', borderColor: 'transparent transparent transparent var(--text-primary)' }} />
+              )}
             </button>
 
-            {/* File name + time */}
             <div style={{ flex: 1, minWidth: 0 }}>
               <p style={{ ...SANS, fontSize: 10.5, fontWeight: 500, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginBottom: 1 }} title={audioFileName ?? ''}>
                 {audioFileName}
@@ -248,61 +312,84 @@ function AudioSection() {
               </p>
             </div>
 
-            {/* Remove */}
-            <button onClick={clearAudio} title="Remove" style={{ display: 'flex', background: 'none', border: 'none', padding: 2, cursor: 'pointer', color: 'var(--text-tertiary)', flexShrink: 0 }}>
+            <button
+              onClick={clearAudio}
+              title="Remove"
+              style={{ display: 'flex', background: 'none', border: 'none', padding: 2, cursor: 'pointer', color: 'var(--text-tertiary)', flexShrink: 0 }}
+            >
               <X size={11} />
             </button>
           </div>
 
-          {/* ── Progress bar ── */}
+          {/* Progress bar */}
           <div
             style={{ height: 3, borderRadius: 99, background: 'var(--raised-bg)', cursor: 'pointer', overflow: 'hidden' }}
             onClick={e => {
-              const el = audioRef.current; if (!el || !duration) return
+              const el = audioRef.current
+              if (!el || !duration) return
               const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
               el.currentTime = ((e.clientX - rect.left) / rect.width) * duration
-            }}>
-            <div style={{ height: '100%', borderRadius: 99, background: 'var(--accent)', width: `${progress}%`, transition: 'width 0.25s linear' }} />
+            }}
+          >
+            <div
+              style={{
+                height: '100%',
+                borderRadius: 99,
+                background: 'var(--accent)',
+                width: `${progress}%`,
+                transition: 'width 0.25s linear'
+              }}
+            />
           </div>
 
-          {/* ── Mix toggle + Volume row ── */}
+          {/* Mix toggle + Volume */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            {/* Mix on/off */}
             <button
               onClick={() => dispatch({ type: 'SET_AUDIO_ENABLED', enabled: !audioEnabled })}
               title={audioEnabled ? 'Disable audio in recording' : 'Enable audio in recording'}
               style={{
-                display: 'flex', alignItems: 'center', gap: 5,
-                padding: '4px 9px', borderRadius: 6, cursor: 'pointer', flexShrink: 0,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 5,
+                padding: '4px 9px',
+                borderRadius: 6,
+                cursor: 'pointer',
+                flexShrink: 0,
                 transition: 'all 0.15s',
                 background: audioEnabled ? 'var(--accent-muted)' : 'var(--raised-bg)',
                 border: `1px solid ${audioEnabled ? 'var(--accent-border)' : 'var(--border-default)'}`,
-              }}>
-              <span style={{
-                width: 5, height: 5, borderRadius: '50%', flexShrink: 0,
-                background: audioEnabled ? 'var(--accent)' : 'var(--text-disabled)',
-                transition: 'background 0.15s',
-              }} />
+              }}
+            >
+              <span
+                style={{
+                  width: 5,
+                  height: 5,
+                  borderRadius: '50%',
+                  flexShrink: 0,
+                  background: audioEnabled ? 'var(--accent)' : 'var(--text-disabled)',
+                  transition: 'background 0.15s',
+                }}
+              />
               <span style={{ ...MONO, fontSize: 8.5, fontWeight: 600, color: audioEnabled ? 'var(--accent)' : 'var(--text-tertiary)', letterSpacing: '0.04em' }}>
                 {audioEnabled ? 'MIX ON' : 'MIX OFF'}
               </span>
             </button>
 
-            {/* Volume icon */}
             <Volume2 size={11} style={{ color: 'var(--text-tertiary)', flexShrink: 0 }} />
 
-            {/* Volume slider */}
             <input
-              type="range" min={0} max={1} step={0.01} value={audioVolume}
+              type="range"
+              min={0}
+              max={1}
+              step={0.01}
+              value={audioVolume}
               onChange={e => {
                 const v = parseFloat(e.target.value)
                 dispatch({ type: 'SET_AUDIO_VOLUME', volume: v })
-                if (audioRef.current) audioRef.current.volume = v
               }}
               style={{ flex: 1, accentColor: 'var(--accent)', cursor: 'pointer', height: 3 }}
             />
 
-            {/* Volume % */}
             <span style={{ ...MONO, fontSize: 9, color: 'var(--text-tertiary)', flexShrink: 0, minWidth: 24, textAlign: 'right' }}>
               {Math.round(audioVolume * 100)}%
             </span>
@@ -310,8 +397,17 @@ function AudioSection() {
         </div>
       )}
 
-      <input ref={fileInputRef} type="file" accept="audio/*" style={{ display: 'none' }}
-        onChange={e => { const f = e.target.files?.[0]; if (f) loadFile(f); e.currentTarget.value = '' }} />
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="audio/*"
+        style={{ display: 'none' }}
+        onChange={e => {
+          const f = e.target.files?.[0]
+          if (f) loadFile(f)
+          e.currentTarget.value = ''
+        }}
+      />
     </div>
   )
 }
@@ -319,6 +415,15 @@ function AudioSection() {
 // ─── Left Panel ───────────────────────────────────────────────────────────────
 export function LeftPanel() {
   const { state } = useApp()
+
+  // Optional: cleanup blob URLs when source video changes / unmounts
+  useEffect(() => {
+    return () => {
+      // If your state exposes sourceVideoUrl:
+      // if (state.sourceVideoUrl) URL.revokeObjectURL(state.sourceVideoUrl)
+    }
+  }, [state.sourceVideoName /* or sourceVideoUrl if you store it */])
+
   return (
     <aside className="panel-card" style={{ width: 218, flexShrink: 0 }}>
       <div className="panel-header" style={{ padding: '10px 12px 8px' }}>
@@ -327,11 +432,6 @@ export function LeftPanel() {
         </span>
       </div>
 
-      {/*
-        flex column: top section (presets/upload) has flex:1 and overflows internally.
-        AudioSection has flexShrink:0 — it's always pinned at the bottom.
-        Switching modes only swaps the top content, audio never moves.
-      */}
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', paddingTop: 8 }}>
         {state.params.mode === 'generate' ? <PresetBrowser /> : <UploadZone />}
         <AudioSection />
