@@ -2,6 +2,7 @@
 
 import { useState, useCallback, useRef } from 'react'
 import { AppProvider } from '@/context/AppContext'
+import { ScopeProvider } from '@/context/ScopeContext'
 import { TopBar } from '@/components/layout/TopBar'
 import { LeftPanel } from '@/components/panels/LeftPanel'
 import { CenterPreview } from '@/components/preview/CenterPreview'
@@ -42,7 +43,9 @@ function AppShell() {
 export default function HomePage() {
   return (
     <AppProvider>
-      <AppShell />
+      <ScopeProvider>
+        <AppShell />
+      </ScopeProvider>
     </AppProvider>
   )
 }

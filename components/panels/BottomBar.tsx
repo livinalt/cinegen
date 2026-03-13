@@ -62,21 +62,21 @@ function AIPromptModal({ open, onClose, onApply, presetId }: {
   const generate = async () => {
     setLoading(true); setSuggestions([]); setSelected(null)
     try {
-      const res = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
+      const res = await fetch('/api/ai-prompt', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          model: 'claude-sonnet-4-20250514', max_tokens: 600,
-          messages: [{ role: 'user', content: `Generate 4 AI image prompts for a live event background in the "${preset?.name}" style (${preset?.category}). Each 15-30 words. No people, no text. Types: Soft, Dramatic, Abstract, Cinematic. Return ONLY JSON: {"prompts":[{"label":"Soft","text":"..."},{"label":"Dramatic","text":"..."},{"label":"Abstract","text":"..."},{"label":"Cinematic","text":"..."}]}` }]
+          presetName: preset?.name || 'Heavenly',
+          presetCategory: preset?.category || 'worship',
         })
       })
       const data = await res.json()
-      const parsed = JSON.parse((data.content?.[0]?.text || '').replace(/```json|```/g, '').trim())
-      setSuggestions(parsed.prompts)
+      setSuggestions(data.prompts)
     } catch {
       setSuggestions([
-        { label: 'Soft', text: 'Soft golden light rays streaming through luminous clouds, gentle sacred radiance, ethereal white atmosphere' },
-        { label: 'Dramatic', text: 'Dramatic celestial beams bursting through storm clouds, deep shadows, powerful heavenly light, epic cinematic' },
-        { label: 'Abstract', text: 'Abstract flowing luminous particles, fluid light trails, shimmering golden mist, deep textural sacred energy' },
+        { label: 'Soft',      text: 'Soft golden light rays streaming through luminous clouds, gentle sacred radiance, ethereal white atmosphere' },
+        { label: 'Dramatic',  text: 'Dramatic celestial beams bursting through storm clouds, deep shadows, powerful heavenly light, epic cinematic' },
+        { label: 'Abstract',  text: 'Abstract flowing luminous particles, fluid light trails, shimmering golden mist, deep textural sacred energy' },
         { label: 'Cinematic', text: 'Wide cinematic horizon at dawn, golden sky gradients, soft lens flare, majestic open sky, peaceful depth' },
       ])
     } finally { setLoading(false) }

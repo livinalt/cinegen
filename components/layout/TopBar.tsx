@@ -1,7 +1,16 @@
 'use client'
 
+/**
+ * TopBar v12:
+ * - No FPS display
+ * - Scope GPU pill with better connect/disconnect buttons
+ * - Export → icon button on far right (⬇ icon)
+ * - Lyrics & Audio pill (centre)
+ * - Blackout icon button on right
+ */
+
 import { useApp } from '@/context/AppContext'
-import { useScopeWebRTC } from '@/hooks/useScopeWebRTC'
+import { useScope } from '@/context/ScopeContext'
 import {
   Settings, WifiOff, Loader2, Download, Square,
   X, Eye, EyeOff
@@ -39,17 +48,17 @@ function TopToast({ msg, type, onDismiss }: { msg: string; type: 'error'|'warn'|
 
 // ─── GPU Indicator (compact single button with dot) ───────────────────────────
 function GpuIndicator({ onToast }: { onToast: (msg: string, type: 'error'|'warn'|'success') => void }) {
-  const { status, statusMessage, startStream, stopStream } = useScopeWebRTC()
+  const { status, statusMessage, startStream, stopStream } = useScope()
   const prevStatus = useRef(status)
 
   useEffect(() => {
     if (prevStatus.current !== 'error' && status === 'error') {
-      onToast('Scope failed — is it running at localhost:8000?', 'error')
+      onToast('Scope connection failed — check the Server URL in Scope Settings → General and update SCOPE_URL in .env.local', 'error')
     }
     prevStatus.current = status
   }, [status])
 
-  const isConnecting = status === 'connecting' || status === 'loading'
+  const isConnecting = status === 'connecting' || status === 'loading' || status === 'creating'
   const isReady = status === 'ready'
   const isError = status === 'error'
 
@@ -84,17 +93,17 @@ function GpuIndicator({ onToast }: { onToast: (msg: string, type: 'error'|'warn'
 
 // ─── Scope GPU Pill (kept for reference, replaced by GpuIndicator) ────────────
 function ScopeGPUPill({ onToast }: { onToast: (msg: string, type: 'error'|'warn'|'success') => void }) {
-  const { status, statusMessage, startStream, stopStream } = useScopeWebRTC()
+  const { status, statusMessage, startStream, stopStream } = useScope()
   const prevStatus = useRef(status)
 
   useEffect(() => {
     if (prevStatus.current !== 'error' && status === 'error') {
-      onToast('Scope failed — is it running at localhost:8000?', 'error')
+      onToast('Scope connection failed — check the Server URL in Scope Settings → General and update SCOPE_URL in .env.local', 'error')
     }
     prevStatus.current = status
   }, [status])
 
-  const isConnecting = status === 'connecting' || status === 'loading'
+  const isConnecting = status === 'connecting' || status === 'loading' || status === 'creating'
   const isReady = status === 'ready'
   const isError = status === 'error'
 

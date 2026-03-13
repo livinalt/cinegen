@@ -16,7 +16,8 @@
 
 import React, { useState } from 'react'
 import { Loader2, WifiOff, X, ChevronDown, ChevronUp } from 'lucide-react'
-import { useScopeWebRTC, ScopeStatus } from '@/hooks/useScopeWebRTC'
+
+import { useScope } from '@/context/ScopeContext'
 
 const MONO: React.CSSProperties = { fontFamily: 'DM Mono, monospace' }
 
@@ -147,7 +148,7 @@ function LiveChip({ onStop }: { onStop: () => void }) {
 }
 
 export function ScopePreview() {
-  const { status, statusMessage, videoRef, startStream, stopStream } = useScopeWebRTC()
+  const { status, statusMessage, videoRef, startStream, stopStream } = useScope()
   const [dismissed, setDismissed] = useState(false)
 
   React.useEffect(() => { setDismissed(false) }, [status])
@@ -168,7 +169,7 @@ export function ScopePreview() {
 
         {/* Scope connection is managed in the Controls tab — no chip here when disconnected */}
 
-        {(status === 'connecting' || status === 'loading') && (
+        {(status === 'connecting' || status === 'loading' || status === 'creating') && (
           <div style={{ pointerEvents: 'auto' }}>
             <LoadingBanner message={statusMessage} onCancel={stopStream} />
           </div>
