@@ -123,8 +123,13 @@ export function useDaydreamStream(): DaydreamStreamResult {
       console.log('[CineGen] Stream created:', data.streamId, 'WHIP:', data.whipUrl)
       setStreamId(data.streamId)
 
-      // Set whipUrl FIRST — this wires up useBroadcast
-      setWhipUrl(data.whipUrl)
+      // Route WHIP through our proxy — Livepeer has no CORS headers on DELETE/OPTIONS
+      // so the browser blocks session cleanup causing the reconnect loop.
+      // Our proxy adds Access-Control-Allow-Origin: * to all responses.
+      const base = typeof window !== 'undefined' ? window.location.origin : ''
+      const proxiedWhipUrl = `${base}/api/whip-proxy?url=${encodeURIComponent(data.whipUrl)}`
+      console.log('[CineGen] Proxied WHIP:', proxiedWhipUrl)
+      setWhipUrl(proxiedWhipUrl)
 
       // Then start broadcasting the canvas stream
       const canvasStream = createAnimatedCanvasStream()
