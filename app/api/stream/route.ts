@@ -47,12 +47,18 @@ export async function POST(req: NextRequest) {
           model_id: modelId || 'stabilityai/sd-turbo',
           prompt: prompt || 'beautiful abstract light rays, ethereal golden atmosphere',
           negative_prompt: 'people, faces, text, logos, watermark, ugly, blurry',
-          guidance_scale: guidanceScale ?? 1.2,
-          num_inference_steps: numInferenceSteps ?? 2,
+          guidance_scale: 1,
+          // T2V mode: skip_diffusion=false means generate purely from prompt
+          // skip_diffusion=true would be V2V (transforms input video)
+          skip_diffusion: false,
+          // t_index_list controls denoising strength — [0] = full T2V generation
+          t_index_list: [0],
+          num_inference_steps: 1,
           width: 512,
           height: 512,
           use_denoising_batch: true,
           do_add_noise: true,
+          seed: Math.floor(Math.random() * 999999),
         },
       }),
     })
