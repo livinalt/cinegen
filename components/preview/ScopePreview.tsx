@@ -155,14 +155,21 @@ export function ScopePreview() {
 
   return (
     <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
-      {/* Live video fades in over canvas when ready */}
-      <video ref={videoRef} autoPlay muted playsInline style={{
-        position: 'absolute', inset: 0,
-        width: '100%', height: '100%', objectFit: 'cover',
-        opacity: status === 'ready' ? 1 : 0,
-        transition: 'opacity 0.7s ease',
-        pointerEvents: 'none',
-      }} />
+      {/* Live video — only rendered when connecting or live */}
+      {status !== 'disconnected' && status !== 'error' && (
+        <video ref={videoRef} autoPlay muted playsInline style={{
+          position: 'absolute', inset: 0,
+          width: '100%', height: '100%', objectFit: 'cover',
+          opacity: status === 'ready' ? 1 : 0,
+          transition: 'opacity 0.7s ease',
+          pointerEvents: 'none',
+          background: 'transparent',
+        }} />
+      )}
+      {/* Always keep a hidden video ref available so player.attachTo() never gets null */}
+      {(status === 'disconnected' || status === 'error') && (
+        <video ref={videoRef} style={{ display: 'none' }} autoPlay muted playsInline />
+      )}
 
       {/* UI overlays — re-enable pointer events only for the chips */}
       <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
