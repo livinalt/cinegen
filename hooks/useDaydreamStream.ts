@@ -139,6 +139,8 @@ export function useDaydreamStream(): DaydreamStreamResult {
     } catch (err: any) {
       console.error('[CineGen] Start error:', err)
       startedRef.current = false
+      setWhipUrl('')      // clear stale URL so next attempt starts fresh
+      setStreamId(null)
       setAppStatus('error')
       setStatusMessage(err.message || 'Connection failed')
     }

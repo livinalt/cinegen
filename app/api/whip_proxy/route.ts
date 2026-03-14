@@ -1,3 +1,20 @@
+/**
+ * /api/whip-proxy — Full WHIP signaling proxy
+ *
+ * The browser SDK sends POST (offer), OPTIONS (preflight), and DELETE (cleanup)
+ * to the WHIP endpoint. Livepeer's server has no CORS headers so the browser
+ * blocks all of these. This proxy forwards everything server-side where CORS
+ * doesn't apply, then returns the response with CORS headers added.
+ *
+ * Browser SDK → /api/whip-proxy?url=https://ai.livepeer.com/.../whip
+ *                    ↓ (server-side, no CORS)
+ *               Livepeer WHIP endpoint
+ *                    ↓
+ *               Response + Access-Control-Allow-Origin: *
+ *                    ↓
+ * Browser SDK ← response (CORS satisfied)
+ */
+
 import { NextRequest, NextResponse } from 'next/server'
 
 const CORS_HEADERS = {
