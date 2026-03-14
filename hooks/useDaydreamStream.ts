@@ -1,7 +1,22 @@
 'use client'
 
-import { useState, useCallback, useEffect, useRef } from 'react'
-import { useBroadcast, usePlayer } from '@daydreamlive/react'
+/**
+ * useDaydreamStream — Manual WHIP implementation
+ *
+ * We bypass @daydreamlive/react entirely because the SDK's WHIPClient
+ * does URL caching + redirect following that breaks with proxy URLs.
+ *
+ * Manual WHIP flow:
+ * 1. Create RTCPeerConnection
+ * 2. Add canvas stream tracks
+ * 3. Create SDP offer
+ * 4. POST offer to /api/whip-proxy (which forwards to Livepeer server-side)
+ * 5. Get SDP answer back
+ * 6. Set remote description → ICE negotiation begins → video streams
+ * 7. For WHEP playback, use a second RTCPeerConnection to receive output
+ */
+
+import { useRef, useCallback, useEffect, useState } from 'react'
 import { useApp } from '@/context/AppContext'
 
 export type StreamStatus = 'disconnected' | 'creating' | 'connecting' | 'ready' | 'error'
@@ -33,77 +48,70 @@ function createAnimatedCanvasStream(): MediaStream {
   return canvas.captureStream(30)
 }
 
+// POST SDP offer to WHIP endpoint via our proxy, get SDP answer
+async function sendWhipOffer(whipUrl: string, offer: RTCSessionDescriptionInit): Promise<{ answer: RTCSessionDescriptionInit, location: string }> {
+  const proxyUrl = `/api/whip-proxy?url=${encodeURIComponent(whipUrl)}`
+  const res = await fetch(proxyUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/sdp' },
+    body: offer.sdp,
+  })
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(`WHIP offer failed: ${res.status} ${text.slice(0, 200)}`)
+  }
+  const answerSdp = await res.text()
+  const location = res.headers.get('location') || ''
+  return {
+    answer: { type: 'answer', sdp: answerSdp },
+    location,
+  }
+}
+
+// POST SDP offer to WHEP endpoint via proxy, get SDP answer for playback
+async function sendWhepOffer(whepUrl: string, offer: RTCSessionDescriptionInit): Promise<RTCSessionDescriptionInit> {
+  const proxyUrl = `/api/whip-proxy?url=${encodeURIComponent(whepUrl)}`
+  const res = await fetch(proxyUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/sdp' },
+    body: offer.sdp,
+  })
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(`WHEP offer failed: ${res.status} ${text.slice(0, 200)}`)
+  }
+  const answerSdp = await res.text()
+  return { type: 'answer', sdp: answerSdp }
+}
+
 export function useDaydreamStream(): DaydreamStreamResult {
   const { state } = useApp()
-
-  // Keep whipUrl in a ref so useBroadcast doesn't re-init on every render
-  const [whipUrl, setWhipUrl] = useState<string>('')
-  const [streamId, setStreamId] = useState<string | null>(null)
-  const [appStatus, setAppStatus] = useState<StreamStatus>('disconnected')
-  const [statusMessage, setStatusMessage] = useState('')
+  const videoRef = useRef<HTMLVideoElement | null>(null)
+  const broadcastPcRef = useRef<RTCPeerConnection | null>(null)
+  const playbackPcRef = useRef<RTCPeerConnection | null>(null)
   const canvasStreamRef = useRef<MediaStream | null>(null)
+  const streamIdRef = useRef<string | null>(null)
   const paramUpdateTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const startedRef = useRef(false)
 
-  // Only initialize useBroadcast with a real URL — empty string = idle, no connection attempt
-  const broadcast = useBroadcast({
-    whipUrl: whipUrl || undefined,
-    reconnect: { enabled: true, maxAttempts: 5 },
-  })
+  const [status, setStatus] = useState<StreamStatus>('disconnected')
+  const [statusMessage, setStatusMessage] = useState('')
 
-  // Only connect player once broadcast is live and we have a whepUrl
-  const liveWhepUrl = broadcast.status.state === 'live' ? broadcast.status.whepUrl : ''
-  const player = usePlayer(liveWhepUrl)
-
-  // Sync broadcast state → app status
-  useEffect(() => {
-    const s = broadcast.status.state
-    if (s === 'idle') return // ignore idle — means not started yet
-    console.log('[CineGen] Broadcast:', s)
-    if (s === 'connecting') {
-      setAppStatus('connecting')
-      setStatusMessage('Connecting broadcast...')
-    } else if (s === 'live') {
-      setAppStatus('connecting')
-      setStatusMessage('Broadcast live, starting player...')
-    } else if (s === 'reconnecting') {
-      setStatusMessage('Reconnecting...')
-    } else if (s === 'error') {
-      if (!startedRef.current) return // ignore errors before we started
-      setAppStatus('error')
-      setStatusMessage((broadcast.status as any).error?.message ?? 'Broadcast error')
-    } else if (s === 'ended') {
-      if (startedRef.current) {
-        setAppStatus('disconnected')
-        setStatusMessage('')
-        startedRef.current = false
-      }
-    }
-  }, [broadcast.status.state])
-
-  // Sync player state → app status
-  useEffect(() => {
-    const s = player.status.state
-    if (s === 'idle') return
-    console.log('[CineGen] Player:', s)
-    if (s === 'playing') {
-      setAppStatus('ready')
-      setStatusMessage('Live')
-    } else if (s === 'buffering') {
-      setStatusMessage('Buffering...')
-    } else if (s === 'error') {
-      setAppStatus('error')
-      setStatusMessage((player.status as any).error?.message ?? 'Player error')
-    }
-  }, [player.status.state])
+  const stopStream = useCallback(() => {
+    broadcastPcRef.current?.close()
+    playbackPcRef.current?.close()
+    broadcastPcRef.current = null
+    playbackPcRef.current = null
+    canvasStreamRef.current?.getTracks().forEach(t => t.stop())
+    canvasStreamRef.current = null
+    streamIdRef.current = null
+    if (videoRef.current) videoRef.current.srcObject = null
+    setStatus('disconnected')
+    setStatusMessage('')
+  }, [])
 
   const startStream = useCallback(async () => {
-    // Prevent double-start
-    if (startedRef.current) return
-    startedRef.current = true
-
     try {
-      setAppStatus('creating')
+      setStatus('creating')
       setStatusMessage('Creating AI stream...')
 
       const p = state.params
@@ -120,47 +128,125 @@ export function useDaydreamStream(): DaydreamStreamResult {
       const data = await res.json()
       if (!res.ok || data.error) throw new Error(data.error || 'Failed to create stream')
 
-      console.log('[CineGen] Stream created:', data.streamId, 'WHIP:', data.whipUrl)
-      setStreamId(data.streamId)
+      const { streamId, whipUrl } = data
+      streamIdRef.current = streamId
+      console.log('[CineGen] Stream created:', streamId, 'WHIP:', whipUrl)
 
-      // Route WHIP through our proxy — Livepeer has no CORS headers on DELETE/OPTIONS
-      // so the browser blocks session cleanup causing the reconnect loop.
-      // Our proxy adds Access-Control-Allow-Origin: * to all responses.
-      const base = typeof window !== 'undefined' ? window.location.origin : ''
-      const proxiedWhipUrl = `${base}/api/whip-proxy?url=${encodeURIComponent(data.whipUrl)}`
-      console.log('[CineGen] Proxied WHIP:', proxiedWhipUrl)
-      setWhipUrl(proxiedWhipUrl)
+      setStatus('connecting')
+      setStatusMessage('Connecting broadcast...')
 
-      // Then start broadcasting the canvas stream
+      // ── Broadcast: send canvas to Livepeer via manual WHIP ──────────────
+      const broadcastPc = new RTCPeerConnection({
+        iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
+      })
+      broadcastPcRef.current = broadcastPc
+
       const canvasStream = createAnimatedCanvasStream()
       canvasStreamRef.current = canvasStream
-      await broadcast.start(canvasStream)
+      canvasStream.getTracks().forEach(track => broadcastPc.addTrack(track, canvasStream))
+
+      broadcastPc.oniceconnectionstatechange = () => {
+        console.log('[CineGen] Broadcast ICE:', broadcastPc.iceConnectionState)
+      }
+
+      const offer = await broadcastPc.createOffer()
+      await broadcastPc.setLocalDescription(offer)
+
+      // Wait for ICE gathering to complete
+      await new Promise<void>(resolve => {
+        if (broadcastPc.iceGatheringState === 'complete') { resolve(); return }
+        broadcastPc.onicegatheringstatechange = () => {
+          if (broadcastPc.iceGatheringState === 'complete') resolve()
+        }
+        setTimeout(resolve, 3000) // max 3s wait
+      })
+
+      const { answer, location } = await sendWhipOffer(whipUrl, broadcastPc.localDescription!)
+      console.log('[CineGen] WHIP answer received, location:', location)
+      await broadcastPc.setRemoteDescription(answer)
+
+      setStatusMessage('Broadcast live, warming up GPU...')
+
+      // Wait for broadcast ICE to connect
+      await new Promise<void>((resolve, reject) => {
+        const timeout = setTimeout(() => reject(new Error('Broadcast ICE timeout')), 15000)
+        const check = () => {
+          const s = broadcastPc.iceConnectionState
+          if (s === 'connected' || s === 'completed') { clearTimeout(timeout); resolve() }
+          else if (s === 'failed') { clearTimeout(timeout); reject(new Error('Broadcast ICE failed')) }
+        }
+        broadcastPc.oniceconnectionstatechange = check
+        check()
+      })
+
+      console.log('[CineGen] Broadcast ICE connected — waiting for pipeline...')
+      setStatusMessage('Warming up GPU... 30s')
+
+      // Wait for Livepeer pipeline to warm up (polling)
+      let whepUrl: string | null = null
+      const pollStart = Date.now()
+      while (Date.now() - pollStart < 90000) {
+        await new Promise(r => setTimeout(r, 4000))
+        const s = await fetch(`/api/stream?id=${streamId}`).then(r => r.json()).catch(() => ({}))
+        const elapsed = Math.round((Date.now() - pollStart) / 1000)
+        setStatusMessage(`Warming up GPU... ${elapsed}s`)
+        console.log(`[CineGen] Pipeline @ ${elapsed}s fps:${s.outputFps} whep:${s.whepUrl}`)
+        if (s.outputFps > 0 && s.whepUrl) {
+          whepUrl = s.whepUrl
+          break
+        }
+      }
+
+      if (!whepUrl) throw new Error('Pipeline did not start in 90 seconds')
+      console.log('[CineGen] Pipeline ready, connecting player to:', whepUrl)
+      setStatusMessage('Connecting player...')
+
+      // ── Playback: receive AI output via manual WHEP ─────────────────────
+      const playbackPc = new RTCPeerConnection({
+        iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
+      })
+      playbackPcRef.current = playbackPc
+
+      playbackPc.addTransceiver('video', { direction: 'recvonly' })
+      playbackPc.addTransceiver('audio', { direction: 'recvonly' })
+
+      playbackPc.ontrack = (event) => {
+        console.log('[CineGen] Got track:', event.track.kind)
+        if (event.track.kind === 'video' && videoRef.current) {
+          const stream = event.streams[0] || new MediaStream([event.track])
+          videoRef.current.srcObject = stream
+          videoRef.current.play().catch(() => {})
+          setStatus('ready')
+          setStatusMessage('Live')
+        }
+      }
+
+      const playOffer = await playbackPc.createOffer()
+      await playbackPc.setLocalDescription(playOffer)
+
+      await new Promise<void>(resolve => {
+        if (playbackPc.iceGatheringState === 'complete') { resolve(); return }
+        playbackPc.onicegatheringstatechange = () => {
+          if (playbackPc.iceGatheringState === 'complete') resolve()
+        }
+        setTimeout(resolve, 3000)
+      })
+
+      const playAnswer = await sendWhepOffer(whepUrl, playbackPc.localDescription!)
+      await playbackPc.setRemoteDescription(playAnswer)
+      console.log('[CineGen] WHEP connected')
 
     } catch (err: any) {
-      console.error('[CineGen] Start error:', err)
-      startedRef.current = false
-      setWhipUrl('')      // clear stale URL so next attempt starts fresh
-      setStreamId(null)
-      setAppStatus('error')
+      console.error('[CineGen] Stream error:', err)
+      setStatus('error')
       setStatusMessage(err.message || 'Connection failed')
+      stopStream()
     }
-  }, [state.params, broadcast])
-
-  const stopStream = useCallback(() => {
-    startedRef.current = false
-    broadcast.stop()
-    player.stop()
-    canvasStreamRef.current?.getTracks().forEach(t => t.stop())
-    canvasStreamRef.current = null
-    setWhipUrl('')
-    setStreamId(null)
-    setAppStatus('disconnected')
-    setStatusMessage('')
-  }, [broadcast, player])
+  }, [state.params, stopStream])
 
   // Debounced param updates
   useEffect(() => {
-    if (appStatus !== 'ready' || !streamId) return
+    if (status !== 'ready' || !streamIdRef.current) return
     if (paramUpdateTimer.current) clearTimeout(paramUpdateTimer.current)
     paramUpdateTimer.current = setTimeout(async () => {
       const p = state.params
@@ -169,7 +255,7 @@ export function useDaydreamStream(): DaydreamStreamResult {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            streamId,
+            streamId: streamIdRef.current,
             prompt: p.prompt,
             guidanceScale: 1,
             numInferenceSteps: 1,
@@ -179,14 +265,16 @@ export function useDaydreamStream(): DaydreamStreamResult {
         console.error('[CineGen] Param update failed:', err)
       }
     }, 600)
-  }, [state.params.prompt, state.params.transformStrength, appStatus, streamId])
+  }, [state.params.prompt, state.params.transformStrength, status])
+
+  useEffect(() => () => { stopStream() }, [])
 
   return {
-    status: appStatus,
+    status,
     statusMessage,
-    videoRef: player.videoRef,
+    videoRef,
     startStream,
     stopStream,
-    streamId,
+    streamId: streamIdRef.current,
   }
 }
