@@ -11,21 +11,23 @@ function getKey() {
 // Resolve the WHIP redirect server-side so the browser gets the final URL
 // Browser SDK can't follow cross-origin redirects on WHIP URLs
 async function resolveWhipUrl(whipUrl: string): Promise<string> {
+  // Force https on input — raw URL is http:// which causes Mixed Content on Vercel
+  const httpsUrl = whipUrl.replace(/^http:\/\//, 'https://')
   try {
-    const res = await fetch(whipUrl, {
-      method: 'OPTIONS',
-      redirect: 'follow',
-    })
-    // After redirect, we get the final URL
-    return res.url || whipUrl
-  } catch {
-    // If OPTIONS fails, try HEAD
-    try {
-      const res = await fetch(whipUrl, { method: 'HEAD', redirect: 'follow' })
-      return res.url || whipUrl
-    } catch {
-      return whipUrl
+    // manual redirect so we can capture the Location header
+    const res = await fetch(httpsUrl, { method: 'HEAD', redirect: 'manual' })
+    if (res.status >= 300 && res.status < 400) {
+      const loc = res.headers.get('location')
+      if (loc) {
+        const resolved = loc.replace(/^http:\/\//, 'https://')
+        console.log('[Stream API] WHIP resolved:', resolved)
+        return resolved
+      }
     }
+    return httpsUrl
+  } catch (err) {
+    console.error('[Stream API] WHIP resolve failed:', err)
+    return httpsUrl
   }
 }
 
