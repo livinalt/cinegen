@@ -182,22 +182,24 @@ export function useDaydreamStream(): DaydreamStreamResult {
       console.log('[CineGen] Broadcast ICE connected — waiting for pipeline...')
       setStatusMessage('Warming up GPU... 30s')
 
-      // Wait for Livepeer pipeline to warm up (polling)
+      // Get WHEP URL — poll briefly, but connect player as soon as URL is available
+      // even if fps is still 0. Player connecting may trigger pipeline to start.
       let whepUrl: string | null = null
       const pollStart = Date.now()
-      while (Date.now() - pollStart < 90000) {
-        await new Promise(r => setTimeout(r, 4000))
+      while (Date.now() - pollStart < 30000) {
+        await new Promise(r => setTimeout(r, 3000))
         const s = await fetch(`/api/stream?id=${streamId}`).then(r => r.json()).catch(() => ({}))
         const elapsed = Math.round((Date.now() - pollStart) / 1000)
         setStatusMessage(`Warming up GPU... ${elapsed}s`)
-        console.log(`[CineGen] Pipeline @ ${elapsed}s fps:${s.outputFps} whep:${s.whepUrl}`)
-        if (s.outputFps > 0 && s.whepUrl) {
+        console.log(`[CineGen] Pipeline @ ${elapsed}s fps:${s.outputFps} whep:${!!s.whepUrl}`)
+        if (s.whepUrl) {
           whepUrl = s.whepUrl
+          console.log('[CineGen] WHEP URL ready, connecting player (fps may still be 0)')
           break
         }
       }
 
-      if (!whepUrl) throw new Error('Pipeline did not start in 90 seconds')
+      if (!whepUrl) throw new Error('No WHEP URL received after 30 seconds')
       console.log('[CineGen] Pipeline ready, connecting player to:', whepUrl)
       setStatusMessage('Connecting player...')
 

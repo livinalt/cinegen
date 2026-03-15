@@ -130,7 +130,21 @@ export async function GET(req: NextRequest) {
 
     const outputFps = data.data?.inference_status?.output_fps ?? 0
     const whepUrl = data.data?.gateway_status?.whep_url ?? null
-    return NextResponse.json({ outputFps, whepUrl })
+    const lastError = data.data?.inference_status?.last_error ?? null
+    const restartCount = data.data?.inference_status?.restart_count ?? 0
+    // Log full inference status so we can debug fps:0
+    const inputFps = data.data?.inference_status?.input_fps ?? 0
+    console.log('[Stream Status]', JSON.stringify({
+      outputFps,
+      inputFps,
+      whepUrl: whepUrl ? 'present' : 'null',
+      lastError,
+      restartCount,
+      startTime: data.data?.inference_status?.start_time,
+      lastInputTime: data.data?.inference_status?.last_input_time,
+      lastOutputTime: data.data?.inference_status?.last_output_time,
+    }))
+    return NextResponse.json({ outputFps, whepUrl, lastError, restartCount })
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 })
   }
