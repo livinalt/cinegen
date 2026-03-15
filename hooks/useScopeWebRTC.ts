@@ -1,36 +1,16 @@
 'use client'
 
-/**
- * useScopeWebRTC.ts
- *
- * Connects directly to Daydream Scope's server at localhost:8000 via WebRTC.
- * No Python backend needed — Scope IS the backend.
- *
- * Flow:
- *   1. Poll /scope-api/health until Scope is up
- *   2. Load the 'longlive' pipeline via REST
- *   3. Poll pipeline status until loaded
- *   4. Get ICE servers, create RTCPeerConnection
- *   5. Create data channel for live param updates
- *   6. Send WebRTC offer with initial prompt → get answer → ICE exchange
- *   7. Attach incoming video track to a <video> element
- *   8. On any prompt/param change → send over data channel (no reconnect needed)
- *
- * The video element ref is passed in from the component.
- */
-
 import { useEffect, useRef, useCallback, useState } from 'react'
 import { useApp } from '@/context/AppContext'
 
-// All REST calls go through Next.js rewrites → localhost:8000
 const SCOPE = '/scope-api'
 
 export type ScopeStatus =
-  | 'disconnected'   // Scope not reachable
-  | 'connecting'     // Polling health / loading pipeline
-  | 'loading'        // Pipeline loading (can take 2–3 min on remote inference)
-  | 'ready'          // WebRTC connected, video streaming
-  | 'error'          // Unrecoverable error
+  | 'disconnected'
+  | 'connecting'
+  | 'loading'
+  | 'ready'
+  | 'error'
 
 export interface ScopeWebRTCResult {
   status: ScopeStatus
@@ -62,27 +42,34 @@ export function useScopeWebRTC(): ScopeWebRTCResult {
     if (mountedRef.current) fn()
   }, [])
 
-  // ── Send current params over data channel ─────────────────────────────────
   const sendParams = useCallback(() => {
     const dc = dcRef.current
     if (!dc || dc.readyState !== 'open') return
     const p = state.params
-    // Scope parameter format for LongLive / StreamDiffusion
-    dc.send(JSON.stringify({
-      prompts: [{ text: p.prompt || 'beautiful abstract light', weight: 1.0 }],
-      // Map our 0–1 sliders to Scope's expected ranges
-      guidance_scale: 1 + p.transformStrength * 6,        // 1–7
-      num_inference_steps: Math.round(1 + p.smoothness * 3), // 1–4
-      strength: p.motionSpeed,                              // 0–1
-    }))
-  }, [state.params])
 
-  // Auto-send params whenever prompt or sliders change
+    const payload = {
+      prompts: [{ text: p.prompt || 'beautiful abstract light', weight: 1.0 }],
+      guidance_scale: 1 + p.transformStrength * 6,
+      num_inference_steps: Math.round(1 + p.smoothness * 3),
+      strength: p.motionSpeed,
+    }
+
+    // For V2V: reinforce conditioning on every param update
+    if (state.sourceVideoStream) {
+      Object.assign(payload, {
+        strength: p.transformStrength || 0.65,       // 0.0 = ignore input, 1.0 = strong follow
+        conditioning_scale: p.transformStrength * 1.0,
+        motion_bucket_id: Math.round(p.motionSpeed * 255),
+      })
+    }
+
+    dc.send(JSON.stringify(payload))
+  }, [state.params, state.sourceVideoStream])
+
   useEffect(() => {
     sendParams()
-  }, [state.params.prompt, state.params.motionSpeed, state.params.transformStrength, state.params.smoothness])
+  }, [state.params.prompt, state.params.motionSpeed, state.params.transformStrength, state.params.smoothness, sendParams])
 
-  // ── ICE candidate sender ───────────────────────────────────────────────────
   const sendICE = useCallback(async (candidate: RTCIceCandidate) => {
     const sid = sessionRef.current
     if (!sid) return
@@ -99,7 +86,6 @@ export function useScopeWebRTC(): ScopeWebRTCResult {
     })
   }, [])
 
-  // ── Stop stream ───────────────────────────────────────────────────────────
   const stopStream = useCallback(() => {
     dcRef.current?.close()
     pcRef.current?.close()
@@ -113,11 +99,9 @@ export function useScopeWebRTC(): ScopeWebRTCResult {
     })
   }, [safe])
 
-  // ── Start full connection sequence ────────────────────────────────────────
   const startStream = useCallback(async () => {
     safe(() => { setStatus('connecting'); setMessage('Checking Scope server…') })
 
-    // 1. Health check — Scope must be running
     try {
       const h = await fetch(`${SCOPE}/health`)
       if (!h.ok) throw new Error('not ok')
@@ -126,22 +110,19 @@ export function useScopeWebRTC(): ScopeWebRTCResult {
       return
     }
 
-    // 2. Load pipeline
-    safe(() => { setStatus('loading'); setMessage('Loading LongLive pipeline…') })
+    safe(() => { setStatus('loading'); setMessage('Loading pipeline… (first time can take 10–40 min)') })
     try {
       await fetch(`${SCOPE}/api/v1/pipeline/load`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ pipeline_ids: ['longlive'] }),
+        body: JSON.stringify({ pipeline_ids: ['longlive'] }), // or ['streamdiffusion-v2'] for lighter
       })
     } catch {
       safe(() => { setStatus('error'); setMessage('Failed to load pipeline') })
       return
     }
 
-    // 3. Poll until loaded (remote inference can take 2–5 min)
-    safe(() => { setMessage('Pipeline loading… (this can take 2–5 min on remote inference)') })
-    for (let i = 0; i < 120; i++) {  // max 4 min at 2s intervals
+    for (let i = 0; i < 180; i++) {
       await new Promise(r => setTimeout(r, 2000))
       if (!mountedRef.current) return
       try {
@@ -152,30 +133,42 @@ export function useScopeWebRTC(): ScopeWebRTCResult {
           safe(() => { setStatus('error'); setMessage('Pipeline failed to load') })
           return
         }
-        // Update countdown
-        const remaining = Math.round((120 - i) * 2)
-        safe(() => setMessage(`Pipeline loading… (~${remaining}s remaining)`))
-      } catch { /* keep polling */ }
+        safe(() => setMessage(`Pipeline loading… (~${Math.round((180 - i) * 2)}s remaining)`))
+      } catch {}
     }
 
-    // 4. Get ICE servers
     let iceServers: RTCIceServer[] = []
     try {
       const ir = await fetch(`${SCOPE}/api/v1/webrtc/ice-servers`)
       const id = await ir.json()
       iceServers = id.iceServers || []
-    } catch { /* fall back to Google STUN */ }
+    } catch {}
+    if (!iceServers.length) iceServers = [{ urls: 'stun:stun.l.google.com:19302' }]
 
-    if (!iceServers.length) {
-      iceServers = [{ urls: 'stun:stun.l.google.com:19302' }]
-    }
-
-    // 5. Create peer connection
     const pc = new RTCPeerConnection({ iceServers })
     pcRef.current = pc
     queuedICE.current = []
 
-    // 6. Data channel for live parameter updates
+    if (state.sourceVideoStream) {
+      const videoTrack = state.sourceVideoStream.getVideoTracks()[0]
+      if (videoTrack) {
+        pc.addTrack(videoTrack, state.sourceVideoStream)
+        console.log('[WebRTC] Added source video track → V2V conditioning enabled')
+        const sender = pc.getSenders().find(s => s.track?.kind === 'video')
+        if (sender) {
+          try {
+            const params = sender.getParameters()
+            if (params.encodings?.[0]) {
+              params.encodings[0].maxBitrate = 2000000
+              await sender.setParameters(params)
+            }
+          } catch (e) {
+            console.warn('Encoding params failed', e)
+          }
+        }
+      }
+    }
+
     const dc = pc.createDataChannel('parameters', { ordered: true })
     dcRef.current = dc
 
@@ -194,10 +187,10 @@ export function useScopeWebRTC(): ScopeWebRTCResult {
       } catch {}
     }
 
-    // 7. Receive video track → attach to <video>
     pc.ontrack = (e) => {
       if (e.streams?.[0] && videoRef.current) {
         videoRef.current.srcObject = e.streams[0]
+        console.log('[WebRTC] Received remote video track')
       }
     }
 
@@ -207,20 +200,14 @@ export function useScopeWebRTC(): ScopeWebRTCResult {
       }
     }
 
-    // 8. Trickle ICE
     pc.onicecandidate = async (e) => {
       if (!e.candidate) return
-      if (sessionRef.current) {
-        await sendICE(e.candidate)
-      } else {
-        queuedICE.current.push(e.candidate)
-      }
+      if (sessionRef.current) await sendICE(e.candidate)
+      else queuedICE.current.push(e.candidate)
     }
 
-    // 9. Receive-only video transceiver (T2V — no input video)
-    pc.addTransceiver('video')
+    pc.addTransceiver('video', { direction: 'recvonly' })
 
-    // 10. Create offer → send to Scope
     const offer = await pc.createOffer()
     await pc.setLocalDescription(offer)
 
@@ -228,21 +215,45 @@ export function useScopeWebRTC(): ScopeWebRTCResult {
 
     let answer: any
     try {
+      const initialParams: Record<string, any> = {
+        prompts: [{ text: state.params.prompt || 'beautiful cinematic scene', weight: 1.0 }],
+        denoising_step_list: [1000, 750, 500, 250],
+        manage_cache: true,
+      }
+
+      // T2V vs V2V switching
+      if (state.sourceVideoStream) {
+        // V2V mode
+        initialParams.strength = state.params.transformStrength || 0.65
+        initialParams.conditioning_scale = state.params.transformStrength || 0.65
+        initialParams.init_video = true  // or try: conditioning_video: true
+        initialParams.input_source = 'video'
+        initialParams.motion_bucket_id = Math.round(state.params.motionSpeed * 255)
+        console.log('[Offer] Sending V2V conditioning params')
+      } else {
+        // Pure T2V
+        initialParams.strength = 0.0  // no input conditioning
+        console.log('[Offer] Pure T2V mode')
+      }
+
       const resp = await fetch(`${SCOPE}/api/v1/webrtc/offer`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           sdp: pc.localDescription!.sdp,
           type: pc.localDescription!.type,
-          initialParameters: {
-            prompts: [{ text: state.params.prompt || 'beautiful abstract light rays', weight: 1.0 }],
-            denoising_step_list: [1000, 750, 500, 250],
-            manage_cache: true,
-          },
+          initialParameters: initialParams,
         }),
       })
+
+      if (!resp.ok) {
+        const err = await resp.text()
+        throw new Error(`Offer failed: ${err}`)
+      }
+
       answer = await resp.json()
-    } catch {
+    } catch (err) {
+      console.error(err)
       safe(() => { setStatus('error'); setMessage('WebRTC signalling failed') })
       return
     }
@@ -251,11 +262,10 @@ export function useScopeWebRTC(): ScopeWebRTCResult {
 
     await pc.setRemoteDescription({ type: answer.type, sdp: answer.sdp })
 
-    // 11. Flush queued ICE candidates
     for (const c of queuedICE.current) await sendICE(c)
     queuedICE.current = []
 
-  }, [state.params.prompt, sendParams, sendICE, stopStream, safe])
+  }, [state.params.prompt, state.sourceVideoStream, sendParams, sendICE, stopStream, safe])
 
   return {
     status,

@@ -125,7 +125,7 @@ function AIPromptModal({ open, onClose, onApply, presetId }: {
 type PromptState = 'idle' | 'dirty' | 'applied' | 'error'
 
 export function BottomBar({ externalPrompt, onExternalPromptConsumed, toast, onDismissToast }: BottomBarProps) {
-  const { state, setParam } = useApp()
+  const { state, dispatch, setParam } = useApp()
   const [val, setVal] = useState(state.params.prompt)
   const [promptState, setPromptState] = useState<PromptState>('idle')
   const [aiOpen, setAiOpen] = useState(false)
@@ -152,7 +152,6 @@ export function BottomBar({ externalPrompt, onExternalPromptConsumed, toast, onD
 
   const dirty = val !== state.params.prompt && promptState === 'idle'
 
-  // Border/background driven by prompt state — no toast
   const borderColor = promptState === 'applied' ? 'var(--live-border)'
     : promptState === 'error'   ? 'var(--error-border)'
     : promptState === 'dirty'   ? 'var(--warn-border)'
@@ -171,6 +170,10 @@ export function BottomBar({ externalPrompt, onExternalPromptConsumed, toast, onD
   const hintColor = promptState === 'applied' ? 'var(--live-color)'
     : promptState === 'error'   ? 'var(--error-color)'
     : 'var(--warn-color)'
+
+  // T2V / V2V toggle logic
+  const isV2VEnabled = !state.params.t2vMode
+  const hasSourceVideo = !!state.sourceVideoName || !!state.sourceVideoUrl
 
   return (
     <>
@@ -191,11 +194,59 @@ export function BottomBar({ externalPrompt, onExternalPromptConsumed, toast, onD
           border: '1px solid var(--border-subtle)',
           boxShadow: 'var(--shadow-card)',
         }}>
-          {/* Label row */}
+          {/* Label row — now includes T2V/V2V switch */}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-            <span style={{ ...MONO, fontSize: 9, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--text-tertiary)', userSelect: 'none' }}>
-              Prompt
-            </span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <span style={{ ...MONO, fontSize: 9, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--text-tertiary)', userSelect: 'none' }}>
+                Prompt
+              </span>
+
+              {/* T2V / V2V switch */}
+              <label style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                cursor: hasSourceVideo ? 'pointer' : 'not-allowed',
+                opacity: hasSourceVideo ? 1 : 0.5,
+              }}>
+                <span style={{
+                  ...MONO,
+                  fontSize: 9,
+                  color: hasSourceVideo ? 'var(--text-secondary)' : 'var(--text-tertiary)',
+                }}>
+                  {isV2VEnabled ? 'V2V' : 'T2V'}
+                </span>
+                <div style={{
+                  position: 'relative',
+                  width: 32,
+                  height: 18,
+                  background: isV2VEnabled ? 'var(--accent-muted)' : 'var(--raised-bg)',
+                  border: `1px solid ${isV2VEnabled ? 'var(--accent-border)' : 'var(--border-default)'}`,
+                  borderRadius: 99,
+                  transition: 'all 0.2s',
+                  cursor: hasSourceVideo ? 'pointer' : 'not-allowed',
+                }}>
+                  <div style={{
+                    position: 'absolute',
+                    top: 2,
+                    left: isV2VEnabled ? 16 : 2,
+                    width: 14,
+                    height: 14,
+                    background: isV2VEnabled ? 'var(--accent)' : 'var(--text-disabled)',
+                    borderRadius: '50%',
+                    transition: 'left 0.2s, background 0.2s',
+                  }} />
+                </div>
+                <input
+                  type="checkbox"
+                  checked={isV2VEnabled}
+                  onChange={e => dispatch({ type: 'SET_T2V_MODE', enabled: !e.target.checked })}
+                  disabled={!hasSourceVideo}
+                  style={{ display: 'none' }}
+                />
+              </label>
+            </div>
+
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               {/* Inline hint */}
               <span style={{ ...MONO, fontSize: 9, color: hintColor, opacity: hintText ? 1 : 0, transition: 'opacity 0.2s' }}>

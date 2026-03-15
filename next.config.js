@@ -23,6 +23,16 @@ const nextConfig = {
       },
     ]
   },
+
+  // ── NEW: Proxy all /scope-api calls to the actual Daydream Scope server port ──
+  async rewrites() {
+    return [
+      {
+        source: '/scope-api/:path*',
+        destination: 'http://localhost:52178/:path*',  // ← Change 52178 to match your current Scope port
+      },
+    ]
+  },
 }
 
 module.exports = nextConfig

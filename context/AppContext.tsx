@@ -66,6 +66,13 @@ const initialState: AppState = {
   sourceVideoName: '',
   sourceVideoDuration: 0,
 
+  // ── NEW fields for sending video to Scope ────────────────────────────────
+  sourceVideoFile: null as File | null,
+  sourceVideoUrl: null as string | null,
+  sourceVideoElement: null as HTMLVideoElement | null,
+  sourceCanvasElement: null as HTMLCanvasElement | null,
+  sourceVideoStream: null as MediaStream | null,
+
   activeCategoryTab: 'Worship',
 }
 
@@ -196,12 +203,18 @@ function reducer(state: AppState, action: AppAction): AppState {
     case 'SET_EXPORT_IN_PROGRESS':
       return { ...state, exportInProgress: action.inProgress }
 
+    // ── UPDATED: richer payload for video source ─────────────────────────────
     case 'SET_SOURCE_VIDEO':
       return {
         ...state,
         sourceVideoLoaded: true,
         sourceVideoName: action.name,
-        sourceVideoDuration: action.duration,
+        sourceVideoDuration: action.duration ?? 0,
+        sourceVideoFile: action.file ?? null,
+        sourceVideoUrl: action.url ?? null,
+        sourceVideoElement: action.videoEl ?? null,
+        sourceCanvasElement: action.canvasEl ?? null,
+        sourceVideoStream: action.stream ?? null,
       }
 
     case 'CLEAR_SOURCE_VIDEO':
@@ -210,6 +223,11 @@ function reducer(state: AppState, action: AppAction): AppState {
         sourceVideoLoaded: false,
         sourceVideoName: '',
         sourceVideoDuration: 0,
+        sourceVideoFile: null,
+        sourceVideoUrl: null,
+        sourceVideoElement: null,
+        sourceCanvasElement: null,
+        sourceVideoStream: null,
         params: { ...state.params, sourceVideoPath: '' },
       }
 

@@ -84,19 +84,70 @@ function UploadZone() {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [dragOver, setDragOver] = useState(false)
 
-  const handleFile = useCallback((file: File) => {
-    const objectUrl = URL.createObjectURL(file)
+  const handleFile = useCallback(async (file: File) => {
+    if (!file.type.startsWith('video/')) return
+
+    const url = URL.createObjectURL(file)
+
+    // Prepare offscreen video + canvas + stream
+    const videoEl = document.createElement('video')
+    videoEl.src = url
+    videoEl.loop = true
+    videoEl.muted = true
+    videoEl.playsInline = true
+    videoEl.crossOrigin = 'anonymous'
+
+    try {
+      await videoEl.play()
+    } catch (err) {
+      console.warn('Could not autoplay video for capture', err)
+      // still continue — user can interact later
+    }
+
+    const canvas = document.createElement('canvas')
+    canvas.width = 512   // most diffusion models prefer multiples of 64 or 512/768
+    canvas.height = 512
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+
+    let animFrame: number | null = null
+    const draw = () => {
+      if (videoEl.readyState >= 2) {
+        ctx.drawImage(videoEl, 0, 0, canvas.width, canvas.height)
+      }
+      animFrame = requestAnimationFrame(draw)
+    }
+    draw()
+
+    const stream = canvas.captureStream(24) // 24–30 fps is usually enough
 
     dispatch({
       type: 'SET_SOURCE_VIDEO',
       name: file.name,
-      url: objectUrl,
-      // duration: we usually set this later after video metadata loads
+      url,
+      file,
+      videoEl,
+      canvasEl: canvas,
+      stream,
+      duration: 0, // can be updated later if you load metadata
     })
 
-    // Optional: you can add cleanup logic higher up in the component tree
-    // return () => URL.revokeObjectURL(objectUrl)
+    // Cleanup function (will be called on clear or unmount)
+    return () => {
+      if (animFrame) cancelAnimationFrame(animFrame)
+      videoEl.pause()
+      videoEl.src = ''
+      if (stream) stream.getTracks().forEach(t => t.stop())
+      URL.revokeObjectURL(url)
+    }
   }, [dispatch])
+
+  useEffect(() => {
+    // Optional: you can store cleanup function if you want to be extra safe
+    return () => {
+      // cleanup previous video if any
+    }
+  }, [])
 
   if (state.sourceVideoName) {
     return (
@@ -416,13 +467,15 @@ function AudioSection() {
 export function LeftPanel() {
   const { state } = useApp()
 
-  // Optional: cleanup blob URLs when source video changes / unmounts
+  // Optional: cleanup blob URLs & streams when source video changes / unmounts
   useEffect(() => {
     return () => {
-      // If your state exposes sourceVideoUrl:
-      // if (state.sourceVideoUrl) URL.revokeObjectURL(state.sourceVideoUrl)
+      if (state.sourceVideoUrl) URL.revokeObjectURL(state.sourceVideoUrl)
+      if (state.sourceVideoStream) {
+        state.sourceVideoStream.getTracks().forEach(t => t.stop())
+      }
     }
-  }, [state.sourceVideoName /* or sourceVideoUrl if you store it */])
+  }, [state.sourceVideoUrl, state.sourceVideoStream])
 
   return (
     <aside className="panel-card" style={{ width: 218, flexShrink: 0 }}>
