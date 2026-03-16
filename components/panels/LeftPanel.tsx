@@ -82,6 +82,7 @@ function PresetBrowser() {
 function UploadZone() {
   const { state, dispatch } = useApp()
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const videoPreviewRef = useRef<HTMLVideoElement>(null)
   const [dragOver, setDragOver] = useState(false)
 
   const handleFile = useCallback(async (file: File) => {
@@ -105,7 +106,7 @@ function UploadZone() {
     }
 
     const canvas = document.createElement('canvas')
-    canvas.width = 512   // most diffusion models prefer multiples of 64 or 512/768
+    canvas.width = 512
     canvas.height = 512
     const ctx = canvas.getContext('2d')
     if (!ctx) return
@@ -119,7 +120,7 @@ function UploadZone() {
     }
     draw()
 
-    const stream = canvas.captureStream(24) // 24–30 fps is usually enough
+    const stream = canvas.captureStream(24)
 
     dispatch({
       type: 'SET_SOURCE_VIDEO',
@@ -129,10 +130,10 @@ function UploadZone() {
       videoEl,
       canvasEl: canvas,
       stream,
-      duration: 0, // can be updated later if you load metadata
+      duration: 0,
     })
 
-    // Cleanup function (will be called on clear or unmount)
+    // Cleanup function
     return () => {
       if (animFrame) cancelAnimationFrame(animFrame)
       videoEl.pause()
@@ -143,15 +144,16 @@ function UploadZone() {
   }, [dispatch])
 
   useEffect(() => {
-    // Optional: you can store cleanup function if you want to be extra safe
     return () => {
       // cleanup previous video if any
     }
   }, [])
 
-  if (state.sourceVideoName) {
+  // ── Video preview when loaded ───────────────────────────────────────────────
+  if (state.sourceVideoName && state.sourceVideoUrl) {
     return (
-      <div style={{ flex: 1, padding: '0 12px 8px' }}>
+      <div style={{ flex: 1, padding: '0 12px 8px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+        {/* Loaded file info + controls */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 12px', borderRadius: 8, background: 'var(--raised-bg)', border: '1px solid var(--border-default)' }}>
           <Film size={13} style={{ color: 'var(--accent)', flexShrink: 0 }} />
           <div style={{ flex: 1, minWidth: 0 }}>
@@ -160,14 +162,55 @@ function UploadZone() {
             </div>
             <div style={{ fontSize: 10, color: 'var(--text-tertiary)', marginTop: 1 }}>Loaded · Looping</div>
           </div>
-          <button onClick={() => dispatch({ type: 'CLEAR_SOURCE_VIDEO' })} className="btn-icon" style={{ padding: 2 }}>
-            <X size={12} style={{ color: 'var(--text-tertiary)' }} />
-          </button>
+          <div style={{ display: 'flex', gap: 6 }}>
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="btn-icon"
+              title="Replace video"
+              style={{ padding: 4 }}
+            >
+              <Upload size={14} />
+            </button>
+            <button
+              onClick={() => dispatch({ type: 'CLEAR_SOURCE_VIDEO' })}
+              className="btn-icon"
+              title="Delete video"
+              style={{ padding: 4, color: 'var(--error-color)' }}
+            >
+              <X size={14} />
+            </button>
+          </div>
+        </div>
+
+        {/* Video preview */}
+        <div style={{
+          position: 'relative',
+          borderRadius: 8,
+          overflow: 'hidden',
+          background: 'var(--raised-bg)',
+          border: '1px solid var(--border-default)',
+          aspectRatio: '1 / 1',
+          maxHeight: 180,
+        }}>
+          <video
+            ref={videoPreviewRef}
+            src={state.sourceVideoUrl}
+            autoPlay
+            loop
+            muted
+            playsInline
+            style={{
+              width: '100%',
+              height: '100%',
+              objectFit: 'cover',
+            }}
+          />
         </div>
       </div>
     )
   }
 
+  // ── Empty upload zone ────────────────────────────────────────────────────────
   return (
     <div style={{ flex: 1, padding: '0 12px 8px' }}>
       <input

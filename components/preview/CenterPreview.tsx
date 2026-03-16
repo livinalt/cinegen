@@ -14,7 +14,7 @@
 
 import React from 'react'
 import { useApp } from '@/context/AppContext'
-import { MockPreviewCanvas } from './MockPreviewCanvas'
+// import { FluidPreviewCanvas } from './FluidPreviewCanvas'
 import { ScopePreview } from './ScopePreview'
 import { getPresetById } from '@/lib/presets'
 
@@ -100,7 +100,7 @@ export const CenterPreview = React.forwardRef<HTMLCanvasElement>(function Center
       <div className="preview-canvas-wrap" style={{ position: 'relative', flex: 1 }}>
 
         {/* Layer 1: always-on canvas */}
-        <MockPreviewCanvas ref={ref} />
+        {/* <FluidPreviewCanvas /> */}
 
         {/* Layer 2: Scope live video + status chip */}
         <ScopePreview />
