@@ -5,6 +5,8 @@ import { Upload, X, Film, Lock, Volume2, Music2 } from 'lucide-react'
 import { useApp } from '@/context/AppContext'
 import { PRESETS, PRESET_CATEGORIES, getPresetsByCategory } from '@/lib/presets'
 import type { PresetCategory } from '@/types'
+import { useAudioReact } from '@/hooks/useAudioReact' // ← make sure this hook exists
+
 
 const MONO: React.CSSProperties = { fontFamily: 'DM Mono, monospace' }
 const SANS: React.CSSProperties = { fontFamily: 'Plus Jakarta Sans, sans-serif' }
@@ -191,6 +193,7 @@ function UploadZone() {
           border: '1px solid var(--border-default)',
           aspectRatio: '1 / 1',
           maxHeight: 180,
+          boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
         }}>
           <video
             ref={videoPreviewRef}
@@ -245,7 +248,7 @@ function UploadZone() {
 // ─── Audio Section — pinned at bottom, always visible ─────────────────────────
 function AudioSection() {
   const { state, dispatch } = useApp()
-  const { audioFileName, audioFileUrl, audioEnabled, audioVolume } = state
+  const { audioFileName, audioFileUrl, audioEnabled, audioVolume, audioReactive } = state
 
   const fileInputRef = useRef<HTMLInputElement>(null)
   const audioRef = useRef<HTMLAudioElement>(null)
@@ -436,8 +439,9 @@ function AudioSection() {
             />
           </div>
 
-          {/* Mix toggle + Volume */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          {/* Mix toggle + Reactive toggle + Volume */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            {/* MIX toggle */}
             <button
               onClick={() => dispatch({ type: 'SET_AUDIO_ENABLED', enabled: !audioEnabled })}
               title={audioEnabled ? 'Disable audio in recording' : 'Enable audio in recording'}
@@ -466,6 +470,38 @@ function AudioSection() {
               />
               <span style={{ ...MONO, fontSize: 8.5, fontWeight: 600, color: audioEnabled ? 'var(--accent)' : 'var(--text-tertiary)', letterSpacing: '0.04em' }}>
                 {audioEnabled ? 'MIX ON' : 'MIX OFF'}
+              </span>
+            </button>
+
+            {/* Reactive toggle */}
+            <button
+              onClick={() => dispatch({ type: 'SET_AUDIO_REACTIVE', enabled: !audioReactive })}
+              title={audioReactive ? 'Disable audio reactivity' : 'Enable audio reactivity'}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 5,
+                padding: '4px 9px',
+                borderRadius: 6,
+                cursor: 'pointer',
+                flexShrink: 0,
+                transition: 'all 0.15s',
+                background: audioReactive ? 'var(--accent-muted)' : 'var(--raised-bg)',
+                border: `1px solid ${audioReactive ? 'var(--accent-border)' : 'var(--border-default)'}`,
+              }}
+            >
+              <span
+                style={{
+                  width: 5,
+                  height: 5,
+                  borderRadius: '50%',
+                  flexShrink: 0,
+                  background: audioReactive ? 'var(--accent)' : 'var(--text-disabled)',
+                  transition: 'background 0.15s',
+                }}
+              />
+              <span style={{ ...MONO, fontSize: 8.5, fontWeight: 600, color: audioReactive ? 'var(--accent)' : 'var(--text-tertiary)', letterSpacing: '0.04em' }}>
+                {audioReactive ? 'REACTIVE ON' : 'REACTIVE OFF'}
               </span>
             </button>
 
@@ -509,6 +545,8 @@ function AudioSection() {
 // ─── Left Panel ───────────────────────────────────────────────────────────────
 export function LeftPanel() {
   const { state } = useApp()
+
+  useAudioReact() // ← Added: enables real-time audio reactivity when audio is loaded & playing
 
   // Optional: cleanup blob URLs & streams when source video changes / unmounts
   useEffect(() => {
